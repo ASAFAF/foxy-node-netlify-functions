@@ -9,6 +9,15 @@ const Config = {
   },
 };
 
+function getMessages() {
+  return {
+    categoryMismatch: process.env['FX_ERROR_CATEGORY_MISMATCH'] ? process.env['FX_ERROR_CATEGORY_MISMATCH'] : 'Mismatched category.',
+    insufficientInventory: process.env['FX_ERROR_INSUFFICIENT_INVENTORY'] ? process.env['FX_ERROR_INSUFFICIENT_INVENTORY'] : 'Insufficient inventory for these items:',
+    priceMismatch: process.env['FX_ERROR_PRICE_MISMATCH'] ? process.env['FX_ERROR_PRICE_MISMATCH'] : 'Prices do not match.',
+  }
+}
+
+
 /**
  * @param event the request
  * @param context context values
@@ -46,7 +55,13 @@ async function handleRequest(event, context, callback) {
   );
 
   await concatenatedPromisses.then(() => {
-    const failed = findMismatch(values);
+    let failed = findMismatch(values);
+    if (!failed) {
+      const outOfStock = outOfStockItems(values);
+      if (outOfStock) {
+        failed = getMessages().insufficientInventory + " " + outOfStock;
+      }
+    }
     if (failed) {
       console.log(`Mismatch found: ${failed}`)
       callback(null, {
@@ -63,17 +78,13 @@ async function handleRequest(event, context, callback) {
   }).catch((e) => {
     if (e.code && e.code.toString() === '429') {
       console.log('Error: Webflow rate limit reached.')
-      callback(null, {
-        body: JSON.stringify({ details: 'Rate limit reached.', ok: false, }),
-        statusCode: 429,
-      });
     } else {
       console.log('Error', e.code, e.message);
-      callback(null, {
-        body: JSON.stringify({ details: e.message, ok: false, }),
-        statusCode: e.code ? e.code : 500,
-      });
     }
+    callback(null, {
+      body: JSON.stringify({ details: "An internal error has occurred", ok: false, }),
+      statusCode: 500,
+    });
   });
 }
 
@@ -231,7 +242,7 @@ function isPriceCorrect(comparable) {
     // an item with no matched item is not to be checked
     return true;
   }
-  return parseFloat(fxItem.price) === parseFloat(getOption(wfItem, getCustomKey(fxItem, 'price')).value);
+  return parseFloat(fxItem.price) === parseFloat(wfItem.price);
 }
 
 /**
@@ -302,7 +313,7 @@ function getWebflow() {
  * @returns {object} a pair of comparable items
  */
 function enrichFetchedItem(webflowItem, foxyItem) {
-  return {wfItem: webflowItem, fxItem: foxyItem};
+  return {fxItem: foxyItem, wfItem: webflowItem};
 }
 
 /**
@@ -325,6 +336,7 @@ function fetchItem(cache, foxyItem, offset = 0) {
     return Promise.reject(new Error('Item not found'));
   }
   const collectionId = getCustomizableOption(foxyItem, 'collection_id').value;
+
   const webflow = getWebflow();
   const found = cache.findItem(collectionId, foxyItem);
   if (found) {
@@ -392,9 +404,8 @@ function shouldEvaluate(comparable) {
  */
 function findMismatch(values) {
   const evaluations = [
-    [isPriceCorrect, 'Prices do not match.'],
-    [correctCategory, 'Mismatched category.'],
-    [sufficientInventory, 'Insufficient inventory.'],
+    [isPriceCorrect, getMessages().priceMismatch],
+    [correctCategory, getMessages().categoryMismatch],
   ];
   for (let v = 0; v < values.length; v += 1) {
     if (shouldEvaluate(values[v])) {
@@ -406,6 +417,20 @@ function findMismatch(values) {
     }
   }
   return false;
+}
+
+/**
+ * Returns a list of names of products that are out of stock
+ *
+ * @param values comparable objects
+ * @returns {string} comma separated out of stock values
+ */
+function outOfStockItems(values) {
+  return values
+    .filter(v => !sufficientInventory(v))
+    .map(v => v.wfItem.name)
+    .join(', ')
+  ;
 }
 
 /**
