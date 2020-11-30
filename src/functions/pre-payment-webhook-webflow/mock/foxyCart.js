@@ -4,24 +4,20 @@ function randomString() {
 
 function basicRequest(itemBuilder, qty = 10) {
   return {
-    _links: {
-    },
     _embedded: {
       'fx:items': [...new Array(qty)].map(itemBuilder),
     },
+    _links: {
+    },
     locale_code: 'en_US',
     total_item_price: 35.99,
-    total_tax: 3.24,
     total_order: 49.86,
+    total_tax: 3.24,
   };
 }
 
 function basicItem() {
   return {
-    name: randomString(),
-    price: 11,
-    quantity: 1,
-    code: `code${randomString()}`,
     _embedded: {
       'fx:item_category': {
         code: 'DEFAULT',
@@ -31,33 +27,21 @@ function basicItem() {
           name: 'collection_id',
           value: 'COLLECTIONID',
         },
-        {
-          name: 'price_field',
-          value: 'price',
-        },
-        {
-          name: 'code_field',
-          value: 'mysku',
-        },
-        {
-          name: 'inventory_field',
-          value: 'inventory',
-        },
-        {
-          name: 'quantity_field',
-          value: 'quantity',
-        },
       ],
     },
+    code: `code${randomString()}`,
+    name: randomString(),
+    price: 11,
+    quantity: 1,
   };
 }
 
 function basicSubscription(item) {
   const emptySubscription = {
-    subscription_frequency: '',
-    subscription_start_date: null,
-    subscription_next_transaction_date: null,
     subscription_end_date: null,
+    subscription_frequency: '',
+    subscription_next_transaction_date: null,
+    subscription_start_date: null,
   };
   return { ...item, ...emptySubscription };
 }
@@ -80,9 +64,22 @@ function foxyRequest(changes, itemBuilder = basicItem) {
     items.forEach(functionToSet(key, value));
   }
 
+  function setItemsOption(items, option, value) {
+    items.forEach(i => {
+      i._embedded['fx:item_options'].forEach(o => {
+        if (o.name === option) o.value = value
+      })
+    });
+  }
+
   /** Set several values for all items in a collection */
-  function setItemsValuesAll(items, values) {
-    Object.entries(values).forEach(([k, v]) => {
+  function setItemsValuesAll(items, changes) {
+    Object.entries(changes).forEach(([k, v]) => {
+      if (k === 'options' && typeof v === 'object') {
+        for (const [option, optionValue] of Object.entries(v)) {
+          setItemsOption(items, option, optionValue);
+        }
+      }
       setItemsValue(items, k, v);
     });
   }
